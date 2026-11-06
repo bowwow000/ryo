@@ -1,0 +1,16 @@
+{
+  "name": "現場ピン - 図面・建具管理",
+  "short_name": "現場ピン",
+  "description": "図面を取り込み、扉などの位置にピンを立てて情報と写真を管理する現場アプリ",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2f2f7",
+  "theme_color": "#0a66d8",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
