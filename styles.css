@@ -211,9 +211,10 @@ body[data-view="d"] { overflow: hidden; overscroll-behavior: none; }
   padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left;
 }
 .ph-empty { grid-column: 1 / -1; color: var(--sub); font-size: 14px; padding: 8px 0; }
-.form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.form { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; grid-column: span 3; }
 .fld.full { grid-column: 1 / -1; }
+.fld.third { grid-column: span 2; }
 .fld > span { font-size: 12px; color: var(--sub); font-weight: 600; }
 .fld input, .fld select, .fld textarea {
   width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);

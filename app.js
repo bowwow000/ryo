@@ -27,8 +27,9 @@ const FIELDS = [
   { k: 'room', label: '室名・場所', ph: '例: 1F 事務室', full: true },
   { k: 'openType', label: '開き方', options: OPEN_TYPES },
   { k: 'fire', label: '防火', options: FIRE },
-  { k: 'w', label: 'W (mm)', num: true },
-  { k: 'h', label: 'H (mm)', num: true },
+  { k: 'w', label: 'W (mm)', num: true, third: true },
+  { k: 'h', label: 'H (mm)', num: true, third: true },
+  { k: 't', label: '扉厚 (mm)', num: true, third: true },
   { k: 'hardware', label: '錠・金物', ph: '例: レバーハンドル / クローザー', full: true },
   { k: 'maker', label: 'メーカー・品番', full: true },
   { k: 'status', label: '状態', status: true },
@@ -850,7 +851,7 @@ function fieldHtml(f, it) {
   if (f.textarea) {
     return `<label class="fld full"><span>${f.label}</span><textarea name="${f.k}" rows="4" placeholder="${esc(f.ph || '')}">${esc(v)}</textarea></label>`;
   }
-  return `<label class="fld ${f.full ? 'full' : ''}"><span>${f.label}</span><input name="${f.k}" value="${esc(v)}"
+  return `<label class="fld ${f.full ? 'full' : f.third ? 'third' : ''}"><span>${f.label}</span><input name="${f.k}" value="${esc(v)}"
     placeholder="${esc(f.ph || '')}" autocomplete="off" ${f.num ? 'inputmode="numeric"' : ''}></label>`;
 }
 
@@ -1174,5 +1175,10 @@ window.addEventListener('hashchange', route);
 route();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW登録失敗', e));
+  // 新しいバージョンが入ったら自動で再読み込み（初回インストール時は除く）
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !window.__reloading) { window.__reloading = true; location.reload(); }
+  });
+  navigator.serviceWorker.register('./sw.js').then((r) => r.update()).catch((e) => console.warn('SW登録失敗', e));
 }
