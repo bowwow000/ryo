@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import * as cloud from './cloud.js';
 
 // ============================================================
 // 設定
@@ -300,9 +301,11 @@ function setBar({ title, back, actions = [] }) {
 }
 
 let routeToken = 0;
+let viewRefresh = null; // 他の人の変更を受信したときの画面更新（未設定なら画面を再表示）
 async function route() {
   trackNav();
   runCleanup();
+  viewRefresh = null;
   const token = ++routeToken;
   const raw = location.hash.slice(1) || '/';
   const [path, qs] = raw.split('?');
@@ -335,7 +338,7 @@ async function touchProject(pid) {
 async function viewHome(stale) {
   const [projects, items] = await Promise.all([db.all('projects'), db.all('items')]);
   if (stale()) return;
-  setBar({ title: '現場一覧', actions: [{ label: '⋯', onClick: homeMenu }] });
+  setBar({ title: '現場一覧', actions: [...(cloud.isConfigured() ? [{ label: '☁', onClick: cloudMenu }] : []), { label: '⋯', onClick: homeMenu }] });
   projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   const cnt = {};
   items.forEach((i) => {
@@ -346,13 +349,14 @@ async function viewHome(stale) {
   });
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   app.innerHTML = `
+    ${cloudLineHtml()}
     ${!standalone && /iPhone|iPad/.test(navigator.userAgent) ? `<div class="tip">📲 Safari の共有ボタン →「ホーム画面に追加」でアプリとして使えます。データの保持も安定します。</div>` : ''}
     <div class="list">
       ${projects.length ? projects.map((p) => {
         const c = cnt[p.id] || { total: 0, done: 0, ng: 0 };
         return `<a class="card" href="#/p/${p.id}">
           <div class="card-main"><div class="card-title">${esc(p.name)}</div>
-          <div class="card-sub">${esc(p.address || '')}</div></div>
+          <div class="card-sub">${p.cloud ? '☁ ' : ''}${esc(p.address || '')}</div></div>
           <div class="card-meta">${progressHtml(c)}</div></a>`;
       }).join('') : `<div class="empty">現場がまだありません。<br>右下の「＋ 新規現場」から作成してください。</div>`}
     </div>
@@ -379,10 +383,12 @@ function progressHtml(c) {
 
 async function homeMenu() {
   const a = await actionSheet(null, [
+    ...(cloud.isConfigured() ? [{ label: '☁ OneDrive 連携', value: 'cloud' }] : []),
     { label: '全データをバックアップ', value: 'backup' },
     { label: 'バックアップから復元', value: 'restore' },
     { label: '使用容量を確認', value: 'usage' },
   ]);
+  if (a === 'cloud') cloudMenu();
   if (a === 'backup') exportBackup();
   if (a === 'restore') importBackup();
   if (a === 'usage') {
@@ -413,6 +419,7 @@ async function viewProject(id, tab, stale) {
   photos.forEach((ph) => { photoCount[ph.itemId] = (photoCount[ph.itemId] || 0) + 1; });
 
   app.innerHTML = `
+    ${p.cloud ? cloudLineHtml() : ''}
     <div class="tabs">
       <button data-tab="drawings" class="${tab === 'drawings' ? 'active' : ''}">図面 <small>${drawings.length}</small></button>
       <button data-tab="list" class="${tab === 'list' ? 'active' : ''}">一覧 <small>${items.length}</small></button>
@@ -484,12 +491,31 @@ async function viewProject(id, tab, stale) {
 
 async function projectMenu(p) {
   const a = await actionSheet(p.name, [
+    ...(!cloud.isConfigured() ? [] : p.cloud
+      ? [{ label: '☁ OneDrive のフォルダを開く（共有設定）', value: 'odopen' }, { label: '☁ 今すぐ同期', value: 'sync' }]
+      : [{ label: '☁ OneDrive に保存（チームで共有）', value: 'link' }]),
     { label: '写真付きレポート（印刷・PDF）', value: 'report' },
     { label: '一覧をCSVで出力', value: 'csv' },
     { label: 'この現場をバックアップ', value: 'backup' },
     { label: '現場情報を編集', value: 'edit' },
     { label: '現場を削除', value: 'delete', danger: true },
   ]);
+  if (a === 'odopen') {
+    if (p.cloud.webUrl) window.open(p.cloud.webUrl, '_blank');
+    else toast('フォルダの場所を取得できませんでした。OneDrive アプリで「現場ピン」フォルダを開いてください', 5000);
+  }
+  if (a === 'sync') syncNow();
+  if (a === 'link') {
+    if (!cloud.hasSession()) return cloudMenu();
+    try {
+      toast('OneDrive に保存中…（写真が多いと時間がかかります）', 0);
+      await cloud.linkProject(p.id);
+      toast('OneDrive に保存しました。共有するには「OneDrive のフォルダを開く」から共有してください', 6000);
+    } catch (e) {
+      toast(`保存できませんでした: ${e.message}`, 6000);
+    }
+    route();
+  }
   if (a === 'report') go(`#/r/${p.id}`);
   if (a === 'csv') exportCsv(p);
   if (a === 'backup') exportBackup(p);
@@ -504,6 +530,12 @@ async function projectMenu(p) {
     route();
   }
   if (a === 'delete') {
+    if (p.cloud) {
+      if (!(await confirmSheet(`「${p.name}」をこの端末から外します。OneDrive 上のデータは残ります（完全に消すときは OneDrive でフォルダを削除してください）。`, 'この端末から外す'))) return;
+      await deleteProject(p.id, { localOnly: true });
+      toast('この端末から外しました');
+      return location.replace('#/');
+    }
     if (!(await confirmSheet(`「${p.name}」の図面・項目・写真をすべて削除します。元に戻せません。`))) return;
     await deleteProject(p.id);
     toast('削除しました');
@@ -769,6 +801,11 @@ async function viewDrawing(id, q, stale) {
     }).join('');
   };
   renderPins();
+  viewRefresh = async () => {
+    if (!(await db.get('drawings', id))) return location.replace(`#/p/${d.projectId}`);
+    items = await db.by('items', 'drawingId', id);
+    renderPins();
+  };
   $('#chips').addEventListener('click', (e) => {
     const b = e.target.closest('.chip');
     if (!b) return;
@@ -908,6 +945,12 @@ async function viewItem(id, stale) {
     $('#photos').querySelectorAll('.ph').forEach((b) => {
       b.onclick = () => openPhoto(photos.find((p) => p.id === b.dataset.id), renderPhotos);
     });
+  };
+  viewRefresh = async () => {
+    const cur = await db.get('items', it.id);
+    if (!cur) { toast('この項目は他の人に削除されました', 4000); return goBack(`#/d/${it.drawingId}`); }
+    renderPhotos();
+    if (cur._mtime !== it._mtime && !cur._dirty) toast('他の人がこの項目を更新しました。開き直すと反映されます', 4000);
   };
   const addPhotos = async (files) => {
     if (!files.length) return;
@@ -1113,6 +1156,7 @@ async function exportBackup(project) {
       out.data[s] = [];
       for (const r of rows) {
         const o = { ...r };
+        for (const k of ['_etag', '_dirty', '_blobDone', 'cloud']) delete o[k];
         for (const k of ['blob', 'thumb']) if (o[k] instanceof Blob) o[k] = { __blob: await blobToDataUrl(o[k]) };
         out.data[s].push(o);
       }
@@ -1161,10 +1205,109 @@ async function deleteDrawing(id) {
   drawingImgCache.delete(id);
   await db.del('drawings', id);
 }
-async function deleteProject(id) {
+async function deleteProject(id, { localOnly = false } = {}) {
+  if (localOnly) {
+    // OneDrive 側は消さずに、この端末のデータだけ削除
+    for (const s of ['photos', 'items', 'drawings', 'tombstones']) {
+      for (const r of await db.by(s, 'projectId', id)) await db.delRaw(s, r.id);
+    }
+    await db.delRaw('projects', id);
+    return;
+  }
   for (const d of await db.by('drawings', 'projectId', id)) await deleteDrawing(d.id);
   for (const i of await db.by('items', 'projectId', id)) await deleteItem(i.id);
   await db.del('projects', id);
+}
+
+// ============================================================
+// OneDrive 連携の画面
+// ============================================================
+const hhmm = (t) => { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+function cloudText() {
+  if (!cloud.isConfigured()) return '';
+  const acc = cloud.account();
+  if (!acc) return '☁ OneDrive にログインすると、チームで現場を共有できます';
+  const s = cloud.status;
+  const t = {
+    syncing: '同期中…',
+    ok: `同期済み ${s.at ? hhmm(s.at) : ''}`,
+    idle: '接続済み',
+    offline: 'オフライン（電波が戻ると自動で送信します）',
+    login: '⚠ 再ログインが必要です（タップ）',
+    error: '⚠ 同期エラー（タップで詳細）',
+  }[s.state] || '';
+  return `☁ OneDrive: ${esc(acc.name || acc.mail || '')} ・ ${t}`;
+}
+const cloudLineHtml = () => (cloud.isConfigured() ? `<button class="cloud-line" id="cloudLine">${cloudText()}</button>` : '');
+document.addEventListener('click', (e) => { if (e.target.closest('#cloudLine')) cloudMenu(); });
+
+async function syncNow() {
+  if (!cloud.hasSession()) return cloudMenu();
+  toast('同期中…', 0);
+  await cloud.syncAll();
+  const s = cloud.status;
+  toast(s.state === 'ok' ? '同期しました' : s.msg || '同期できませんでした', s.state === 'ok' ? 2000 : 5000);
+}
+
+async function cloudMenu() {
+  if (!cloud.isConfigured()) return toast('OneDrive 連携は準備中です', 3000);
+  const acc = cloud.account();
+  if (!acc || !cloud.hasSession()) {
+    const a = await actionSheet(
+      acc ? 'ログインの有効期限が切れました。もう一度ログインしてください。' : 'OneDrive にログインすると、現場を OneDrive に保存してチームで共有できます。',
+      [{ label: 'Microsoft アカウントでログイン', value: 'login' }],
+    );
+    if (a === 'login') cloud.login().catch((e) => toast(e.message, 5000));
+    return;
+  }
+  if (cloud.status.state === 'error' && cloud.status.msg) toast(cloud.status.msg, 6000);
+  const a = await actionSheet(`${acc.name || ''}${acc.mail ? `（${acc.mail}）` : ''}`, [
+    { label: '今すぐ同期', value: 'sync' },
+    { label: 'OneDrive の現場を開く', value: 'open' },
+    { label: '共有リンクから現場を追加', value: 'link' },
+    { label: 'ログアウト', value: 'logout', danger: true },
+  ]);
+  if (a === 'sync') syncNow();
+  if (a === 'open') openCloudPicker();
+  if (a === 'link') {
+    const v = await formSheet('共有リンクから追加', [{ k: 'url', label: 'OneDrive の共有リンク（フォルダ）', ph: 'https://...' }], '追加');
+    if (!v?.url?.trim()) return;
+    try {
+      toast('読み込み中…', 0);
+      const id = await cloud.openCloudProject(await cloud.resolveShareLink(v.url));
+      toast('追加しました');
+      go(`#/p/${id}`);
+    } catch (e) {
+      toast(e.message, 5000);
+    }
+  }
+  if (a === 'logout') {
+    if (!(await confirmSheet('ログアウトします。OneDrive の現場はこの端末に残りますが、同期は止まります。', 'ログアウト'))) return;
+    cloud.logout();
+    route();
+  }
+}
+
+async function openCloudPicker() {
+  toast('OneDrive を確認中…', 0);
+  let list;
+  try { list = await cloud.listCloudProjects(); } catch (e) { return toast(e.message, 5000); }
+  const linked = new Set((await db.all('projects')).filter((p) => p.cloud).map((p) => p.cloud.folderId));
+  const cands = list.filter((e) => !linked.has(e.folderId));
+  if (!cands.length) return toast('追加できる現場はありません（すべてこの端末にあります）', 3500);
+  toast('', 1);
+  const e = await actionSheet('開く現場を選んでください（👥 は共有された現場）', cands.map((c) => ({
+    label: `${c.shared ? '👥 ' : ''}${c.name}${c.owner ? `（${c.owner}）` : ''}`, value: c,
+  })));
+  if (!e) return;
+  try {
+    toast('ダウンロード中…', 0);
+    const id = await cloud.openCloudProject(e);
+    toast('追加しました');
+    go(`#/p/${id}`);
+  } catch (err) {
+    toast(err.message, 5000);
+  }
 }
 
 // ============================================================
@@ -1172,7 +1315,23 @@ async function deleteProject(id) {
 // ============================================================
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 window.addEventListener('hashchange', route);
-route();
+
+cloud.setThumbMaker(async (blob, max) => (await resizeToBlob(await loadImageFromBlob(blob), max, 'image/jpeg', 0.8)).blob);
+cloud.onStatus(() => { const el = document.getElementById('cloudLine'); if (el) el.innerHTML = cloudText(); });
+cloud.onRemoteChange(() => {
+  if (sheetRoot.children.length || document.querySelector('.photo-view')) return; // 操作中は画面を変えない
+  if (viewRefresh) viewRefresh(); else route();
+});
+(async () => {
+  try {
+    if (await cloud.handleRedirect()) toast('OneDrive にログインしました', 3000);
+  } catch (e) {
+    toast(`ログインできませんでした: ${e.message}`, 6000);
+  }
+  cloud.startAutoSync();
+  route();
+  cloud.syncAll();
+})();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // 新しいバージョンが入ったら自動で再読み込み（初回インストール時は除く）

@@ -69,6 +69,11 @@ main {
 }
 
 /* ---------- 共通部品 ---------- */
+.cloud-line {
+  display: block; width: 100%; text-align: left; font-size: 13px; color: var(--sub);
+  padding: 8px 12px; margin-bottom: 10px; border-radius: 10px; background: var(--card);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .empty { text-align: center; color: var(--sub); padding: 48px 16px; line-height: 1.8; }
 .tip { background: color-mix(in srgb, var(--accent) 12%, var(--card)); border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-bottom: 12px; line-height: 1.6; }
 .fab {

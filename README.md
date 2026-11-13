@@ -32,6 +32,26 @@ App Store や Mac は不要で、Safari で開いて「ホーム画面に追加�
 > 機種変更や万一に備え、現場の「⋯」メニュー →「この現場をバックアップ」で定期的に書き出し、
 > ファイルアプリや iCloud Drive に保存してください。
 
+## OneDrive 連携（チームで共有）
+
+現場を OneDrive に保存し、OneDrive のフォルダ共有でメンバーと同じ現場を扱えます。
+
+- 保存先: `OneDrive/現場ピン/<現場名>/`（project.json と drawings / items / photos フォルダ）
+- 項目ごとにファイルを分けて保存するため、別々の扉を同時に編集しても衝突しません
+  （同じ項目を同時に編集した場合は、あとから編集した方が残ります）
+- 変更の数秒後・30秒ごと・アプリを開いたときに自動で同期。電波がない間は端末に保存し、戻ったら送信
+- 共有された現場は「☁ → OneDrive の現場を開く」または「共有リンクから現場を追加」で取り込み
+- 「現場を削除」は OneDrive 連携中の現場では「この端末から外す」になり、OneDrive 側は消えません
+
+### 設定（管理者が最初に1回）
+1. Microsoft Entra 管理センターで「アプリの登録」→ 新規登録
+   - アカウントの種類: マルチテナント + 個人用 Microsoft アカウント
+   - リダイレクト URI: シングルページ アプリケーション (SPA) / `https://bowwow000.github.io/ryo/`
+2. 「アプリケーション (クライアント) ID」を `cloud.js` の `CLIENT_ID` に設定
+3. 権限（Files.ReadWrite.All, User.Read, offline_access）はログイン時に利用者の同意を求めます
+
+`CLIENT_ID` が空の間は、OneDrive 関連のボタンは表示されません。
+
 ## 公開方法（GitHub Pages）
 
 カメラやオフライン機能には HTTPS が必要なため、GitHub Pages での公開がおすすめです。
@@ -56,6 +76,7 @@ python3 -m http.server 8000
 index.html            画面の土台
 app.js                画面・機能（ルーティング、図面ビューア、入力、出力）
 db.js                 端末内データベース（IndexedDB）
+cloud.js              OneDrive 連携（サインイン・同期）
 styles.css            デザイン（ダークモード対応）
 sw.js                 オフライン用 Service Worker
 manifest.webmanifest  ホーム画面アプリ設定
@@ -71,7 +92,7 @@ vendor/pdfjs/         PDF 読み込み（pdf.js 3.11.174, Apache-2.0）
 
 ## 今後の拡張候補
 
-- 複数人・複数端末でのデータ共有（クラウド同期: Firebase / Supabase など）
+- Google ドライブ連携（OneDrive と同じ仕組みで追加予定）
 - 写真への手書き・矢印の書き込み
 - 図面上へのメモ・寸法の書き込み
 - 是正指示の担当者・期限管理
