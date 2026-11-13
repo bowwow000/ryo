@@ -10,7 +10,7 @@
 import * as db from './db.js';
 
 // Microsoft Entra（Azure）に登録したアプリの「アプリケーション (クライアント) ID」
-export const CLIENT_ID = '';
+export const CLIENT_ID = 'f64b9876-fae8-4a47-981d-41b2692bdf31';
 
 const ls = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },

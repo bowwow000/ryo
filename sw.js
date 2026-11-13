@@ -1,5 +1,5 @@
 // オフライン対応（アプリ本体をキャッシュ）
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `genba-pin-${VERSION}`;
 const SHELL = [
   './', './index.html', './styles.css', './app.js', './db.js', './cloud.js', './manifest.webmanifest',
